@@ -24,27 +24,11 @@
 
     /* 背景动画粒子 */
     .bg-particles {
-      position: absolute;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      pointer-events: none;
-      z-index: 0;
-      overflow: hidden;
+      display: none;
     }
 
     .particle {
-      position: absolute;
-      width: 4px; height: 4px;
-      background: rgba(255, 255, 255, 0.3);
-      border-radius: 50%;
-      animation: float 15s infinite;
-    }
-
-    @keyframes float {
-      0%, 100% { transform: translateY(0) translateX(0); opacity: 0; }
-      10% { opacity: 1; }
-      90% { opacity: 1; }
-      100% { transform: translateY(-100vh) translateX(100px); opacity: 0; }
+      display: none;
     }
 
     .container {
@@ -2428,9 +2412,6 @@
   </style>
 </head>
 <body>
-  <!-- 背景粒子 -->
-  <div class="bg-particles" id="particles"></div>
-
   <div class="container">
     <header>
       <h1>🎵 云音乐</h1>
@@ -2661,8 +2642,61 @@
   <script>
     // ====== 配置 ======
     const META_API = 'https://api.injahow.cn/meting/'; // 备用：歌单加载
-    const GD_API = 'https://music-api.gdstudio.xyz/api.php'; // 主搜索：支持多平台
-    const GD_API_BACKUP = 'https://music.gdstudio.org/api.php'; // 国内备用
+    const GD_API_RAW = 'https://music-api.gdstudio.xyz/api.php';
+    const GD_API_BACKUP_RAW = 'https://music.gdstudio.org/api.php';
+
+    // CORS 代理列表（从浏览器访问需走代理）
+    const CORS_PROXIES = [
+      '', // 先尝试直连（localhost 或有 CORS 时可用）
+      'https://api.allorigins.win/raw?url=',
+      'https://corsproxy.io/?',
+      'https://cors-anywhere.herokuapp.com/'
+    ];
+
+    let workingProxy = ''; // 缓存可用的代理
+    let proxyChecked = false;
+
+    // 自动探测可用的 CORS 代理（首次请求时执行）
+    async function ensureProxy() {
+      if (proxyChecked) return;
+      proxyChecked = true;
+      const testUrl = GD_API_RAW + '?types=search&source=netease&name=test&count=1&pages=1';
+      for (const proxy of CORS_PROXIES) {
+        try {
+          const url = proxy ? proxy + encodeURIComponent(testUrl) : testUrl;
+          const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+          if (res.ok) {
+            const text = await res.text();
+            // 验证返回的是 JSON
+            try { JSON.parse(text); } catch { continue; }
+            workingProxy = proxy;
+            console.log('✅ CORS代理:', proxy || '直连可用');
+            return;
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+      // 全部失败就用第一个代理碰碰运气
+      workingProxy = CORS_PROXIES[1];
+      console.warn('⚠️ 所有CORS代理都可能不可用，使用默认:', workingProxy);
+    }
+
+    // 包装后的 API URL（自动加代理前缀）
+    function proxyUrl(rawUrl) {
+      if (!workingProxy) return rawUrl;
+      return workingProxy + encodeURIComponent(rawUrl);
+    }
+
+    // 兼容性 fetch 封装
+    async function apiFetch(rawUrl, options = {}) {
+      await ensureProxy();
+      const url = proxyUrl(rawUrl);
+      return fetch(url, { signal: AbortSignal.timeout(12000), ...options });
+    }
+
+    const GD_API = GD_API_RAW; // 保持引用不变，实际请求通过 apiFetch
+    const GD_API_BACKUP = GD_API_BACKUP_RAW;
 
     // 音源平台配置（仅保留 GDStudio API 实际可用的音源）
     const SOURCE_INFO = {
@@ -2831,17 +2865,7 @@
 
     // 创建背景粒子
     function createParticles() {
-      const container = document.getElementById('particles');
-      const particleCount = window.innerWidth <= 768 ? 10 : 20;
-      for (let i = 0; i < particleCount; i++) {
-        const p = document.createElement('div');
-        p.className = 'particle';
-        p.style.left = Math.random() * 100 + '%';
-        p.style.top = Math.random() * 100 + '%';
-        p.style.animationDelay = Math.random() * 15 + 's';
-        p.style.animationDuration = (10 + Math.random() * 10) + 's';
-        container.appendChild(p);
-      }
+      // 已禁用粒子DOM生成（微信WebView兼容性问题）
     }
 
     // 创建可视化条
@@ -2981,7 +3005,7 @@
       for (let attempt = 0; attempt < MAX_RETRY; attempt++) {
         for (const apiUrl of apis) {
           try {
-            const res = await fetch(apiUrl, { signal: AbortSignal.timeout(10000) });
+            const res = await apiFetch(apiUrl);
             if (!res.ok) continue;
             const data = await res.json();
             if (Array.isArray(data) && data.length > 0) {
@@ -3020,7 +3044,7 @@
         const song = songList[i];
         if (!song.picId) continue;
         try {
-          const res = await fetch(`${GD_API}?types=pic&source=${song.source}&id=${song.picId}&size=300`);
+          const res = await apiFetch(`${GD_API}?types=pic&source=${song.source}&id=${song.picId}&size=300`);
           const data = await res.json();
           if (data && data.url) {
             song.cover = data.url;
@@ -3059,7 +3083,7 @@
         for (let attempt = 0; attempt < 3; attempt++) {
           for (const apiUrl of apis) {
             try {
-              const res = await fetch(apiUrl, { signal: AbortSignal.timeout(10000) });
+              const res = await apiFetch(apiUrl);
               const data = await res.json();
               if (data && data.url) {
                 if (String(tryBr) !== String(userBr)) {
@@ -3274,7 +3298,7 @@
     // 加载歌词
     async function loadLyric(song) {
       try {
-        const res = await fetch(`${GD_API}?types=lyric&source=${song.source}&id=${song.lyricId}`);
+        const res = await apiFetch(`${GD_API}?types=lyric&source=${song.source}&id=${song.lyricId}`);
         const data = await res.json();
         if (data && data.lyric) {
           song.lrc = data.lyric;
@@ -4165,7 +4189,7 @@
 
       // 异步补充封面
       if (!song.cover && song.picId) {
-        fetch(`${GD_API}?types=pic&source=${song.source}&id=${song.picId}&size=300`)
+        apiFetch(`${GD_API}?types=pic&source=${song.source}&id=${song.picId}&size=300`)
           .then(r => r.json())
           .then(d => { if (d && d.url) { song.cover = d.url; renderRequestQueue(); } })
           .catch(() => {});

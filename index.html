@@ -19,19 +19,17 @@
       min-height: 100vh;
       color: #fff;
       overflow-x: hidden;
+      position: relative;
     }
 
     /* 背景动画粒子 */
     .bg-particles {
-      position: fixed;
+      position: absolute;
       top: 0; left: 0;
       width: 100%; height: 100%;
       pointer-events: none;
       z-index: 0;
-      background: transparent;
       overflow: hidden;
-      -webkit-transform: translateZ(0);
-      transform: translateZ(0);
     }
 
     .particle {
@@ -58,9 +56,6 @@
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      /* 防止移动端合成层冲突产生黑色块 */
-      -webkit-transform: translateZ(0);
-      transform: translateZ(0);
     }
 
     /* 头部 */
@@ -2837,7 +2832,8 @@
     // 创建背景粒子
     function createParticles() {
       const container = document.getElementById('particles');
-      for (let i = 0; i < 25; i++) {
+      const particleCount = window.innerWidth <= 768 ? 10 : 20;
+      for (let i = 0; i < particleCount; i++) {
         const p = document.createElement('div');
         p.className = 'particle';
         p.style.left = Math.random() * 100 + '%';
